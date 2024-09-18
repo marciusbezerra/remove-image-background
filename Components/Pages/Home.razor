@@ -1,0 +1,93 @@
+﻿@page "/"
+@rendermode InteractiveServer
+
+@using System.Net.Http
+@using System.Net.Http.Headers
+@inject HttpClient Http
+
+<h3>Remove Background</h3>
+
+<div class="row">
+    <div class="col-md-6 p-3">
+        <h4>Original Image</h4>
+        @if (originalImageUrl == null)
+        {
+            <p>No image selected</p>
+        }
+        else
+        {
+            <img src="@originalImageUrl" alt="Original Image" style="max-width: 100%" class="mb-3" />
+        }
+        <InputFile OnChange="UploadImage" accept="image/*" />
+        <button class="btn btn-danger" @onclick="ClearImage">Clear</button>
+    </div>
+    <div class="col-md-6 p-3">
+        <h4>Image Without Background</h4>
+        @if (processedImageUrl == null)
+        {
+            <p>No image processed</p>
+        }
+        else
+        {
+            <img src="@processedImageUrl" alt="Processed Image" style="max-width: 100%" />
+        }
+    </div>
+</div>
+
+<button class="btn btn-primary" @onclick="ProcessImage">Process Image</button>
+
+@code {
+    private string? originalImageUrl;
+    private string? processedImageUrl;
+    private MultipartFormDataContent form = new MultipartFormDataContent();
+
+    private async Task UploadImage(InputFileChangeEventArgs e)
+    {
+        var maxAllowedSize = 5 * 1024 * 1024; // 5MB
+
+        var browserFile = await e.File.RequestImageFileAsync(e.File.ContentType, 1000, 1000);
+
+        var ms = new MemoryStream();
+
+        await browserFile.OpenReadStream(maxAllowedSize).CopyToAsync(ms);
+
+        var msBytes = ms.ToArray();
+
+        var preffix = browserFile.ContentType.Contains("png") ? "data:image/png;base64," : "data:image/jpeg;base64,";
+        var base64 = Convert.ToBase64String(msBytes);
+
+        var content = new ByteArrayContent(msBytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue(browserFile.ContentType);
+
+        form = new MultipartFormDataContent();
+        form.Add(content, "image_file", browserFile.Name);
+
+        originalImageUrl = $"{preffix}{base64}";
+
+    }
+
+    private void ClearImage()
+    {
+        originalImageUrl = null;
+        processedImageUrl = null;
+    }
+
+    private async Task ProcessImage()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "https://clipdrop-api.co/remove-background/v1");
+        request.Headers.Add("x-api-key",
+        "API_KEY");
+        request.Content = form;
+
+        var response = await Http.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            var imageStream = await response.Content.ReadAsStreamAsync();
+            var memoryStream = new MemoryStream();
+            await imageStream.CopyToAsync(memoryStream);
+            byte[] data = memoryStream.ToArray();
+
+            processedImageUrl = $"data:image/png;base64,{Convert.ToBase64String(data)}";
+        }
+    }
+}
